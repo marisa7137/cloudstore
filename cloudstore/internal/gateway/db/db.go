@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 type DB struct {
