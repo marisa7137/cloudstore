@@ -29,6 +29,18 @@ service StorageService {
   // GetUploadStatus reports which chunks of an in-progress upload are still
   // missing, so an interrupted upload can be resumed.
   rpc GetUploadStatus(UploadStatusRequest) returns (UploadStatusResponse);
+
+  // GetUsage returns the storage currently attributed to a user: completed
+  // files at their final size plus in-progress uploads at their declared size.
+  rpc GetUsage(UsageRequest) returns (UsageResponse);
+}
+
+message UsageRequest {
+  int64 user_id = 1;
+}
+
+message UsageResponse {
+  int64 used_bytes = 1;
 }
 
 message ListTasksRequest {

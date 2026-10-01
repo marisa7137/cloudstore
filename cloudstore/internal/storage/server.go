@@ -70,6 +70,17 @@ func (s *Server) ListTasks(ctx context.Context, req *storagepb.ListTasksRequest)
 	return resp, nil
 }
 
+func (s *Server) GetUsage(ctx context.Context, req *storagepb.UsageRequest) (*storagepb.UsageResponse, error) {
+	if req.GetUserId() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	used, err := s.db.UserUsage(req.GetUserId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "usage: %v", err)
+	}
+	return &storagepb.UsageResponse{UsedBytes: used}, nil
+}
+
 func toProtoTaskStatus(s db.TaskStatus) storagepb.TaskStatus {
 	switch s {
 	case db.TaskInProgress:

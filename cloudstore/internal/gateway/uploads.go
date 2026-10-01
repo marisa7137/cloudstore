@@ -16,6 +16,11 @@ import (
 
 const maxChunkBody = 2 << 20 // keep in sync with storage service limit
 
+// storageLimit is the per-user quota. Hardcoded for now; later this could
+// live on the user row (plans, admin overrides, ...).
+// Explicitly int64 so raising it past 2 GiB can never overflow a 32-bit int.
+const storageLimit int64 = 1 << 30 // 1 GiB
+
 // POST /api/uploads
 func (s *Server) handleInitUpload(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -31,6 +36,25 @@ func (s *Server) handleInitUpload(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	// Quota check: in-progress uploads already count at their declared size,
+	// so parallel uploads can't collectively overshoot the limit (much).
+	usage, err := s.storage.GetUsage(ctx, &storagepb.UsageRequest{
+		UserId: currentUser(r).ID,
+	})
+	if err != nil {
+		writeGRPCError(w, err)
+		return
+	}
+	if usage.GetUsedBytes()+req.Size > storageLimit {
+		writeJSON(w, http.StatusInsufficientStorage, map[string]any{
+			"error":     "storage limit exceeded",
+			"limit":     storageLimit,
+			"used":      usage.GetUsedBytes(),
+			"remaining": max(storageLimit-usage.GetUsedBytes(), 0),
+		})
+		return
+	}
 
 	resp, err := s.storage.InitUpload(ctx, &storagepb.InitUploadRequest{
 		UserId:     currentUser(r).ID,

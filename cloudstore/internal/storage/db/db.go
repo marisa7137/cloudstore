@@ -178,6 +178,19 @@ func (d *DB) setStatus(id int64, status FileStatus, size int64, md5 string) erro
 	return nil
 }
 
+// UserUsage returns the bytes attributed to a user: completed files count at
+// their final size, in-progress uploads at their declared size (reserving the
+// space up front). Failed uploads don't count.
+func (d *DB) UserUsage(userID int64) (int64, error) {
+	var used int64
+	err := d.conn.QueryRow(`
+		SELECT COALESCE(SUM(size), 0) FROM files
+		WHERE user_id = ? AND status IN ('complete', 'uploading')`,
+		userID,
+	).Scan(&used)
+	return used, err
+}
+
 func (d *DB) DeleteFile(id, userID int64) error {
 	res, err := d.conn.Exec(
 		`DELETE FROM files WHERE id = ? AND user_id = ?`, id, userID)

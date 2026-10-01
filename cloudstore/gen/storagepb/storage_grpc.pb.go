@@ -25,6 +25,7 @@ const (
 	StorageService_CompleteUpload_FullMethodName  = "/storage.StorageService/CompleteUpload"
 	StorageService_ListTasks_FullMethodName       = "/storage.StorageService/ListTasks"
 	StorageService_GetUploadStatus_FullMethodName = "/storage.StorageService/GetUploadStatus"
+	StorageService_GetUsage_FullMethodName        = "/storage.StorageService/GetUsage"
 )
 
 // StorageServiceClient is the client API for StorageService service.
@@ -49,6 +50,9 @@ type StorageServiceClient interface {
 	// GetUploadStatus reports which chunks of an in-progress upload are still
 	// missing, so an interrupted upload can be resumed.
 	GetUploadStatus(ctx context.Context, in *UploadStatusRequest, opts ...grpc.CallOption) (*UploadStatusResponse, error)
+	// GetUsage returns the storage currently attributed to a user: completed
+	// files at their final size plus in-progress uploads at their declared size.
+	GetUsage(ctx context.Context, in *UsageRequest, opts ...grpc.CallOption) (*UsageResponse, error)
 }
 
 type storageServiceClient struct {
@@ -119,6 +123,16 @@ func (c *storageServiceClient) GetUploadStatus(ctx context.Context, in *UploadSt
 	return out, nil
 }
 
+func (c *storageServiceClient) GetUsage(ctx context.Context, in *UsageRequest, opts ...grpc.CallOption) (*UsageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UsageResponse)
+	err := c.cc.Invoke(ctx, StorageService_GetUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StorageServiceServer is the server API for StorageService service.
 // All implementations must embed UnimplementedStorageServiceServer
 // for forward compatibility.
@@ -141,6 +155,9 @@ type StorageServiceServer interface {
 	// GetUploadStatus reports which chunks of an in-progress upload are still
 	// missing, so an interrupted upload can be resumed.
 	GetUploadStatus(context.Context, *UploadStatusRequest) (*UploadStatusResponse, error)
+	// GetUsage returns the storage currently attributed to a user: completed
+	// files at their final size plus in-progress uploads at their declared size.
+	GetUsage(context.Context, *UsageRequest) (*UsageResponse, error)
 	mustEmbedUnimplementedStorageServiceServer()
 }
 
@@ -168,6 +185,9 @@ func (UnimplementedStorageServiceServer) ListTasks(context.Context, *ListTasksRe
 }
 func (UnimplementedStorageServiceServer) GetUploadStatus(context.Context, *UploadStatusRequest) (*UploadStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUploadStatus not implemented")
+}
+func (UnimplementedStorageServiceServer) GetUsage(context.Context, *UsageRequest) (*UsageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsage not implemented")
 }
 func (UnimplementedStorageServiceServer) mustEmbedUnimplementedStorageServiceServer() {}
 func (UnimplementedStorageServiceServer) testEmbeddedByValue()                        {}
@@ -298,6 +318,24 @@ func _StorageService_GetUploadStatus_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StorageService_GetUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StorageServiceServer).GetUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StorageService_GetUsage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StorageServiceServer).GetUsage(ctx, req.(*UsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StorageService_ServiceDesc is the grpc.ServiceDesc for StorageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -328,6 +366,10 @@ var StorageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUploadStatus",
 			Handler:    _StorageService_GetUploadStatus_Handler,
+		},
+		{
+			MethodName: "GetUsage",
+			Handler:    _StorageService_GetUsage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
