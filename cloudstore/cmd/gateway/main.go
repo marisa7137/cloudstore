@@ -15,7 +15,13 @@ func main() {
 	}
 	defer database.Close()
 
-	srv := gateway.NewServer(database)
+	storageClient, conn, err := gateway.DialStorage("localhost:9090")
+	if err != nil {
+		log.Fatalf("dial storage: %v", err)
+	}
+	defer conn.Close()
+
+	srv := gateway.NewServer(database, storageClient)
 
 	addr := ":8080"
 	log.Printf("gateway listening on %s", addr)

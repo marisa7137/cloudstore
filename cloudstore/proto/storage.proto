@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package storage;
+
+option go_package = "cloudstore/gen/storagepb";
+
+import "google/protobuf/timestamp.proto";
+
+// StorageService manages file metadata and file content.
+service StorageService {
+  // ListFiles returns all file descriptors of one user,
+  // including in-progress and failed uploads.
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+
+  // InitUpload registers a new file (status: uploading) and creates an
+  // upload task tracking chunk progress.
+  rpc InitUpload(InitUploadRequest) returns (InitUploadResponse);
+
+  // UploadChunk stores one chunk as a temporary file on disk.
+  rpc UploadChunk(UploadChunkRequest) returns (UploadChunkResponse);
+
+  // CompleteUpload verifies all chunks arrived, assembles them into the
+  // final blob, computes the md5 and marks file + task complete.
+  rpc CompleteUpload(CompleteUploadRequest) returns (FileInfo);
+}
+
+message InitUploadRequest {
+  int64 user_id = 1;
+  string name = 2;
+  string mime_type = 3;
+  int64 size = 4;        // expected total size in bytes
+  int32 chunk_count = 5; // how many chunks the client will send
+}
+
+message InitUploadResponse {
+  int64 file_id = 1;
+  int64 task_id = 2;
+}
+
+message UploadChunkRequest {
+  int64 user_id = 1;
+  int64 file_id = 2;
+  int32 chunk_index = 3; // 0-based
+  bytes data = 4;
+}
+
+message UploadChunkResponse {
+  int32 chunks_received = 1;
+  int32 chunks_total = 2;
+}
+
+message CompleteUploadRequest {
+  int64 user_id = 1;
+  int64 file_id = 2;
+}
+
+message ListFilesRequest {
+  int64 user_id = 1;
+}
+
+message ListFilesResponse {
+  repeated FileInfo files = 1;
+  // Sum of sizes of all completed files, in bytes.
+  int64 total_size = 2;
+}
+
+enum FileStatus {
+  FILE_STATUS_UNSPECIFIED = 0;
+  FILE_STATUS_UPLOADING = 1;
+  FILE_STATUS_COMPLETE = 2;
+  FILE_STATUS_FAILED = 3;
+}
+
+message FileInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string name = 3;
+  int64 size = 4;
+  string md5 = 5;
+  string mime_type = 6;
+  FileStatus status = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
