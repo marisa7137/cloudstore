@@ -22,6 +22,51 @@ service StorageService {
   // CompleteUpload verifies all chunks arrived, assembles them into the
   // final blob, computes the md5 and marks file + task complete.
   rpc CompleteUpload(CompleteUploadRequest) returns (FileInfo);
+
+  // ListTasks returns all tasks of a user (uploads), newest first.
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
+  // GetUploadStatus reports which chunks of an in-progress upload are still
+  // missing, so an interrupted upload can be resumed.
+  rpc GetUploadStatus(UploadStatusRequest) returns (UploadStatusResponse);
+}
+
+message ListTasksRequest {
+  int64 user_id = 1;
+}
+
+message ListTasksResponse {
+  repeated TaskInfo tasks = 1;
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_IN_PROGRESS = 1;
+  TASK_STATUS_COMPLETE = 2;
+  TASK_STATUS_FAILED = 3;
+}
+
+message TaskInfo {
+  int64 id = 1;
+  int64 file_id = 2;
+  string file_name = 3;  // denormalized from files for display
+  int64 file_size = 4;
+  string type = 5;
+  TaskStatus status = 6;
+  int32 chunks_total = 7;
+  int32 chunks_received = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message UploadStatusRequest {
+  int64 user_id = 1;
+  int64 file_id = 2;
+}
+
+message UploadStatusResponse {
+  int32 chunks_total = 1;
+  repeated int32 missing_chunks = 2; // 0-based indices not yet on disk
 }
 
 message InitUploadRequest {

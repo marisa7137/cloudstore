@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	StorageService_ListFiles_FullMethodName      = "/storage.StorageService/ListFiles"
-	StorageService_InitUpload_FullMethodName     = "/storage.StorageService/InitUpload"
-	StorageService_UploadChunk_FullMethodName    = "/storage.StorageService/UploadChunk"
-	StorageService_CompleteUpload_FullMethodName = "/storage.StorageService/CompleteUpload"
+	StorageService_ListFiles_FullMethodName       = "/storage.StorageService/ListFiles"
+	StorageService_InitUpload_FullMethodName      = "/storage.StorageService/InitUpload"
+	StorageService_UploadChunk_FullMethodName     = "/storage.StorageService/UploadChunk"
+	StorageService_CompleteUpload_FullMethodName  = "/storage.StorageService/CompleteUpload"
+	StorageService_ListTasks_FullMethodName       = "/storage.StorageService/ListTasks"
+	StorageService_GetUploadStatus_FullMethodName = "/storage.StorageService/GetUploadStatus"
 )
 
 // StorageServiceClient is the client API for StorageService service.
@@ -42,6 +44,11 @@ type StorageServiceClient interface {
 	// CompleteUpload verifies all chunks arrived, assembles them into the
 	// final blob, computes the md5 and marks file + task complete.
 	CompleteUpload(ctx context.Context, in *CompleteUploadRequest, opts ...grpc.CallOption) (*FileInfo, error)
+	// ListTasks returns all tasks of a user (uploads), newest first.
+	ListTasks(ctx context.Context, in *ListTasksRequest, opts ...grpc.CallOption) (*ListTasksResponse, error)
+	// GetUploadStatus reports which chunks of an in-progress upload are still
+	// missing, so an interrupted upload can be resumed.
+	GetUploadStatus(ctx context.Context, in *UploadStatusRequest, opts ...grpc.CallOption) (*UploadStatusResponse, error)
 }
 
 type storageServiceClient struct {
@@ -92,6 +99,26 @@ func (c *storageServiceClient) CompleteUpload(ctx context.Context, in *CompleteU
 	return out, nil
 }
 
+func (c *storageServiceClient) ListTasks(ctx context.Context, in *ListTasksRequest, opts ...grpc.CallOption) (*ListTasksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListTasksResponse)
+	err := c.cc.Invoke(ctx, StorageService_ListTasks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storageServiceClient) GetUploadStatus(ctx context.Context, in *UploadStatusRequest, opts ...grpc.CallOption) (*UploadStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UploadStatusResponse)
+	err := c.cc.Invoke(ctx, StorageService_GetUploadStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StorageServiceServer is the server API for StorageService service.
 // All implementations must embed UnimplementedStorageServiceServer
 // for forward compatibility.
@@ -109,6 +136,11 @@ type StorageServiceServer interface {
 	// CompleteUpload verifies all chunks arrived, assembles them into the
 	// final blob, computes the md5 and marks file + task complete.
 	CompleteUpload(context.Context, *CompleteUploadRequest) (*FileInfo, error)
+	// ListTasks returns all tasks of a user (uploads), newest first.
+	ListTasks(context.Context, *ListTasksRequest) (*ListTasksResponse, error)
+	// GetUploadStatus reports which chunks of an in-progress upload are still
+	// missing, so an interrupted upload can be resumed.
+	GetUploadStatus(context.Context, *UploadStatusRequest) (*UploadStatusResponse, error)
 	mustEmbedUnimplementedStorageServiceServer()
 }
 
@@ -130,6 +162,12 @@ func (UnimplementedStorageServiceServer) UploadChunk(context.Context, *UploadChu
 }
 func (UnimplementedStorageServiceServer) CompleteUpload(context.Context, *CompleteUploadRequest) (*FileInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteUpload not implemented")
+}
+func (UnimplementedStorageServiceServer) ListTasks(context.Context, *ListTasksRequest) (*ListTasksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTasks not implemented")
+}
+func (UnimplementedStorageServiceServer) GetUploadStatus(context.Context, *UploadStatusRequest) (*UploadStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUploadStatus not implemented")
 }
 func (UnimplementedStorageServiceServer) mustEmbedUnimplementedStorageServiceServer() {}
 func (UnimplementedStorageServiceServer) testEmbeddedByValue()                        {}
@@ -224,6 +262,42 @@ func _StorageService_CompleteUpload_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StorageService_ListTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTasksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StorageServiceServer).ListTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StorageService_ListTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StorageServiceServer).ListTasks(ctx, req.(*ListTasksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StorageService_GetUploadStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StorageServiceServer).GetUploadStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StorageService_GetUploadStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StorageServiceServer).GetUploadStatus(ctx, req.(*UploadStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StorageService_ServiceDesc is the grpc.ServiceDesc for StorageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -246,6 +320,14 @@ var StorageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompleteUpload",
 			Handler:    _StorageService_CompleteUpload_Handler,
+		},
+		{
+			MethodName: "ListTasks",
+			Handler:    _StorageService_ListTasks_Handler,
+		},
+		{
+			MethodName: "GetUploadStatus",
+			Handler:    _StorageService_GetUploadStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

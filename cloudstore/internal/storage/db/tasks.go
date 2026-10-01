@@ -62,18 +62,51 @@ func (d *DB) scanTask(query string, args ...any) (*Task, error) {
 	return t, nil
 }
 
-// IncrementTaskChunks counts one more received chunk and returns the new count.
-func (d *DB) IncrementTaskChunks(id int64) (int, error) {
+// SetTaskChunksReceived records the current number of chunks on disk.
+// The chunk files themselves are the source of truth; this column is a
+// cached progress indicator for listings.
+func (d *DB) SetTaskChunksReceived(id int64, received int) error {
 	_, err := d.conn.Exec(`
 		UPDATE tasks
-		SET chunks_received = chunks_received + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?`, id)
+		SET chunks_received = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?`, received, id)
+	return err
+}
+
+// TaskListItem is a task enriched with its file's name and size for display.
+type TaskListItem struct {
+	Task
+	FileName string `json:"file_name"`
+	FileSize int64  `json:"file_size"`
+}
+
+// ListUserTasks returns all tasks of a user, newest first.
+func (d *DB) ListUserTasks(userID int64) ([]*TaskListItem, error) {
+	rows, err := d.conn.Query(`
+		SELECT t.id, t.user_id, t.file_id, t.type, t.status,
+		       t.chunks_total, t.chunks_received, t.created_at, t.updated_at,
+		       f.name, f.size
+		FROM tasks t JOIN files f ON f.id = t.file_id
+		WHERE t.user_id = ?
+		ORDER BY t.created_at DESC, t.id DESC`, userID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	var received int
-	err = d.conn.QueryRow(`SELECT chunks_received FROM tasks WHERE id = ?`, id).Scan(&received)
-	return received, err
+	defer rows.Close()
+
+	tasks := []*TaskListItem{}
+	for rows.Next() {
+		t := &TaskListItem{}
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.FileID, &t.Type, &t.Status,
+			&t.ChunksTotal, &t.ChunksReceived, &t.CreatedAt, &t.UpdatedAt,
+			&t.FileName, &t.FileSize,
+		); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
 }
 
 func (d *DB) SetTaskStatus(id int64, status TaskStatus) error {

@@ -42,6 +42,47 @@ func (s *Server) ListFiles(ctx context.Context, req *storagepb.ListFilesRequest)
 	return resp, nil
 }
 
+func (s *Server) ListTasks(ctx context.Context, req *storagepb.ListTasksRequest) (*storagepb.ListTasksResponse, error) {
+	if req.GetUserId() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+
+	tasks, err := s.db.ListUserTasks(req.GetUserId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list tasks: %v", err)
+	}
+
+	resp := &storagepb.ListTasksResponse{}
+	for _, t := range tasks {
+		resp.Tasks = append(resp.Tasks, &storagepb.TaskInfo{
+			Id:             t.ID,
+			FileId:         t.FileID,
+			FileName:       t.FileName,
+			FileSize:       t.FileSize,
+			Type:           t.Type,
+			Status:         toProtoTaskStatus(t.Status),
+			ChunksTotal:    int32(t.ChunksTotal),
+			ChunksReceived: int32(t.ChunksReceived),
+			CreatedAt:      timestamppb.New(t.CreatedAt),
+			UpdatedAt:      timestamppb.New(t.UpdatedAt),
+		})
+	}
+	return resp, nil
+}
+
+func toProtoTaskStatus(s db.TaskStatus) storagepb.TaskStatus {
+	switch s {
+	case db.TaskInProgress:
+		return storagepb.TaskStatus_TASK_STATUS_IN_PROGRESS
+	case db.TaskComplete:
+		return storagepb.TaskStatus_TASK_STATUS_COMPLETE
+	case db.TaskFailed:
+		return storagepb.TaskStatus_TASK_STATUS_FAILED
+	default:
+		return storagepb.TaskStatus_TASK_STATUS_UNSPECIFIED
+	}
+}
+
 func toProto(f *db.File) *storagepb.FileInfo {
 	return &storagepb.FileInfo{
 		Id:        f.ID,

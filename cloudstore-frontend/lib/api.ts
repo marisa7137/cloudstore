@@ -89,6 +89,46 @@ export const completeUpload = (fileId: number) =>
     body: JSON.stringify({}),
   });
 
+export type TaskInfo = {
+  id: number;
+  file_id: number;
+  file_name: string;
+  file_size: number;
+  type: string;
+  status: "in_progress" | "complete" | "failed" | "unknown";
+  chunks_total: number;
+  chunks_received: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export const listTasks = () => api<{ tasks: TaskInfo[] }>("/api/tasks");
+
+export const getUploadStatus = (fileId: number) =>
+  api<{ chunks_total: number; missing_chunks: number[] }>(
+    `/api/uploads/${fileId}/status`
+  );
+
+// resumeUpload continues an interrupted upload: asks the server which chunks
+// are missing (the "cursor" lives server-side as chunk files on disk),
+// sends only those, then completes.
+export async function resumeUpload(
+  file: File,
+  fileId: number,
+  onProgress?: (fraction: number) => void
+): Promise<FileInfo> {
+  const { missing_chunks } = await getUploadStatus(fileId);
+
+  let done = 0;
+  for (const i of missing_chunks) {
+    const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    await uploadChunk(fileId, i, chunk);
+    onProgress?.(++done / missing_chunks.length);
+  }
+
+  return completeUpload(fileId);
+}
+
 // uploadFile drives the whole flow: init -> N chunks -> complete.
 // onProgress is called with a 0..1 fraction after each chunk.
 export async function uploadFile(

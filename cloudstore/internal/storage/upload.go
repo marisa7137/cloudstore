@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -77,26 +79,74 @@ func (s *Server) UploadChunk(ctx context.Context, req *storagepb.UploadChunkRequ
 			"chunk_index %d out of range [0, %d)", idx, task.ChunksTotal)
 	}
 
-	path := filepath.Join(s.uploadDir(file.UserID, file.ID), chunkName(idx))
-
-	// A retried chunk overwrites the old one but must not be counted twice.
-	_, statErr := os.Stat(path)
-	isNew := errors.Is(statErr, os.ErrNotExist)
-
-	if err := os.WriteFile(path, req.GetData(), 0o644); err != nil {
+	dir := s.uploadDir(file.UserID, file.ID)
+	// Recreate the dir if it vanished (e.g. temp files cleaned between restarts).
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, status.Errorf(codes.Internal, "create upload dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, chunkName(idx)), req.GetData(), 0o644); err != nil {
 		return nil, status.Errorf(codes.Internal, "write chunk: %v", err)
 	}
 
-	received := task.ChunksReceived
-	if isNew {
-		if received, err = s.db.IncrementTaskChunks(task.ID); err != nil {
-			return nil, status.Errorf(codes.Internal, "update task: %v", err)
-		}
+	// The chunk files on disk are the source of truth for progress; counting
+	// them (instead of incrementing) makes retried chunks naturally idempotent.
+	present, err := s.presentChunks(file.UserID, file.ID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "scan chunks: %v", err)
+	}
+	if err := s.db.SetTaskChunksReceived(task.ID, len(present)); err != nil {
+		return nil, status.Errorf(codes.Internal, "update task: %v", err)
 	}
 
 	return &storagepb.UploadChunkResponse{
-		ChunksReceived: int32(received),
+		ChunksReceived: int32(len(present)),
 		ChunksTotal:    int32(task.ChunksTotal),
+	}, nil
+}
+
+// presentChunks returns the set of chunk indices currently on disk.
+func (s *Server) presentChunks(userID, fileID int64) (map[int32]bool, error) {
+	entries, err := os.ReadDir(s.uploadDir(userID, fileID))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[int32]bool{}, nil // nothing uploaded yet (or cleaned up)
+	}
+	if err != nil {
+		return nil, err
+	}
+	present := make(map[int32]bool, len(entries))
+	for _, e := range entries {
+		idxStr := strings.TrimPrefix(e.Name(), "chunk_")
+		if idxStr == e.Name() {
+			continue // not a chunk file
+		}
+		n, err := strconv.Atoi(idxStr)
+		if err != nil {
+			continue
+		}
+		present[int32(n)] = true
+	}
+	return present, nil
+}
+
+func (s *Server) GetUploadStatus(ctx context.Context, req *storagepb.UploadStatusRequest) (*storagepb.UploadStatusResponse, error) {
+	file, task, err := s.uploadState(req.GetUserId(), req.GetFileId())
+	if err != nil {
+		return nil, err
+	}
+	present, err := s.presentChunks(file.UserID, file.ID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "scan chunks: %v", err)
+	}
+
+	missing := []int32{}
+	for i := 0; i < task.ChunksTotal; i++ {
+		if !present[int32(i)] {
+			missing = append(missing, int32(i))
+		}
+	}
+	return &storagepb.UploadStatusResponse{
+		ChunksTotal:   int32(task.ChunksTotal),
+		MissingChunks: missing,
 	}, nil
 }
 
@@ -105,9 +155,13 @@ func (s *Server) CompleteUpload(ctx context.Context, req *storagepb.CompleteUplo
 	if err != nil {
 		return nil, err
 	}
-	if task.ChunksReceived != task.ChunksTotal {
+	present, err := s.presentChunks(file.UserID, file.ID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "scan chunks: %v", err)
+	}
+	if len(present) != task.ChunksTotal {
 		return nil, status.Errorf(codes.FailedPrecondition,
-			"only %d of %d chunks received", task.ChunksReceived, task.ChunksTotal)
+			"only %d of %d chunks received", len(present), task.ChunksTotal)
 	}
 
 	size, sum, err := s.assemble(file, task)

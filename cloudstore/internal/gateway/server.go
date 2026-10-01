@@ -24,6 +24,8 @@ func NewServer(database *db.DB, storage storagepb.StorageServiceClient) *Server 
 	s.mux.Handle("POST /api/uploads", s.requireAuth(http.HandlerFunc(s.handleInitUpload)))
 	s.mux.Handle("PUT /api/uploads/{id}/chunks/{index}", s.requireAuth(http.HandlerFunc(s.handleUploadChunk)))
 	s.mux.Handle("POST /api/uploads/{id}/complete", s.requireAuth(http.HandlerFunc(s.handleCompleteUpload)))
+	s.mux.Handle("GET /api/uploads/{id}/status", s.requireAuth(http.HandlerFunc(s.handleUploadStatus)))
+	s.mux.Handle("GET /api/tasks", s.requireAuth(http.HandlerFunc(s.handleListTasks)))
 
 	return s
 }
