@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	_ "modernc.org/sqlite" // registers the "sqlite" driver with database/sql
 )
 
 type DB struct {
