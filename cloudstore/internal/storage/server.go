@@ -61,9 +61,10 @@ func (s *Server) ListTasks(ctx context.Context, req *storagepb.ListTasksRequest)
 			FileSize:       t.FileSize,
 			Type:           t.Type,
 			Status:         toProtoTaskStatus(t.Status),
-			ChunksTotal:    int32(t.ChunksTotal),
-			ChunksReceived: int32(t.ChunksReceived),
-			CreatedAt:      timestamppb.New(t.CreatedAt),
+			ChunksTotal:      int32(t.ChunksTotal),
+			ChunksReceived:   int32(t.ChunksReceived),
+			SourceModifiedMs: t.SourceModified,
+			CreatedAt:        timestamppb.New(t.CreatedAt),
 			UpdatedAt:      timestamppb.New(t.UpdatedAt),
 		})
 	}

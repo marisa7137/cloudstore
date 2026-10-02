@@ -102,7 +102,7 @@ export default function UserPage() {
     setUploadMsg(null);
     setProgress(0);
     try {
-      const info = await resumeUpload(file, task.file_id, setProgress);
+      const info = await resumeUpload(file, task, setProgress);
       setUploadMsg(`Resumed and completed ${info.name} (md5 ${info.md5})`);
     } catch (err) {
       setUploadMsg(`Resume failed: ${(err as Error).message}`);

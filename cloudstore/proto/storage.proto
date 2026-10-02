@@ -69,11 +69,18 @@ message TaskInfo {
   int32 chunks_received = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
+  // Exposed so the client can cheaply detect a changed source file
+  // (mtime comparison) before hashing gigabytes on resume.
+  int64 source_modified_ms = 11;
 }
 
 message UploadStatusRequest {
   int64 user_id = 1;
   int64 file_id = 2;
+  // Fingerprint of the file the client wants to resume with. If it does not
+  // match what was recorded at init, the task is failed and chunks removed.
+  string source_hash = 3;
+  int64 source_modified_ms = 4;
 }
 
 message UploadStatusResponse {
@@ -87,6 +94,10 @@ message InitUploadRequest {
   string mime_type = 3;
   int64 size = 4;        // expected total size in bytes
   int32 chunk_count = 5; // how many chunks the client will send
+  // Fingerprint of the source file, used to detect that the file changed
+  // between interruption and resume, or during the upload itself.
+  string source_hash = 6;        // sha256 hex of the whole file
+  int64 source_modified_ms = 7;  // client file mtime, ms since epoch
 }
 
 message InitUploadResponse {

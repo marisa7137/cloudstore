@@ -314,8 +314,11 @@ type TaskInfo struct {
 	ChunksReceived int32                  `protobuf:"varint,8,opt,name=chunks_received,json=chunksReceived,proto3" json:"chunks_received,omitempty"`
 	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Exposed so the client can cheaply detect a changed source file
+	// (mtime comparison) before hashing gigabytes on resume.
+	SourceModifiedMs int64 `protobuf:"varint,11,opt,name=source_modified_ms,json=sourceModifiedMs,proto3" json:"source_modified_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TaskInfo) Reset() {
@@ -418,12 +421,23 @@ func (x *TaskInfo) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *TaskInfo) GetSourceModifiedMs() int64 {
+	if x != nil {
+		return x.SourceModifiedMs
+	}
+	return 0
+}
+
 type UploadStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	FileId        int64                  `protobuf:"varint,2,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	FileId int64                  `protobuf:"varint,2,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	// Fingerprint of the file the client wants to resume with. If it does not
+	// match what was recorded at init, the task is failed and chunks removed.
+	SourceHash       string `protobuf:"bytes,3,opt,name=source_hash,json=sourceHash,proto3" json:"source_hash,omitempty"`
+	SourceModifiedMs int64  `protobuf:"varint,4,opt,name=source_modified_ms,json=sourceModifiedMs,proto3" json:"source_modified_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UploadStatusRequest) Reset() {
@@ -466,6 +480,20 @@ func (x *UploadStatusRequest) GetUserId() int64 {
 func (x *UploadStatusRequest) GetFileId() int64 {
 	if x != nil {
 		return x.FileId
+	}
+	return 0
+}
+
+func (x *UploadStatusRequest) GetSourceHash() string {
+	if x != nil {
+		return x.SourceHash
+	}
+	return ""
+}
+
+func (x *UploadStatusRequest) GetSourceModifiedMs() int64 {
+	if x != nil {
+		return x.SourceModifiedMs
 	}
 	return 0
 }
@@ -523,14 +551,18 @@ func (x *UploadStatusResponse) GetMissingChunks() []int32 {
 }
 
 type InitUploadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	MimeType      string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
-	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                               // expected total size in bytes
-	ChunkCount    int32                  `protobuf:"varint,5,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"` // how many chunks the client will send
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	UserId     int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name       string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	MimeType   string                 `protobuf:"bytes,3,opt,name=mime_type,json=mimeType,proto3" json:"mime_type,omitempty"`
+	Size       int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                               // expected total size in bytes
+	ChunkCount int32                  `protobuf:"varint,5,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"` // how many chunks the client will send
+	// Fingerprint of the source file, used to detect that the file changed
+	// between interruption and resume, or during the upload itself.
+	SourceHash       string `protobuf:"bytes,6,opt,name=source_hash,json=sourceHash,proto3" json:"source_hash,omitempty"`                      // sha256 hex of the whole file
+	SourceModifiedMs int64  `protobuf:"varint,7,opt,name=source_modified_ms,json=sourceModifiedMs,proto3" json:"source_modified_ms,omitempty"` // client file mtime, ms since epoch
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InitUploadRequest) Reset() {
@@ -594,6 +626,20 @@ func (x *InitUploadRequest) GetSize() int64 {
 func (x *InitUploadRequest) GetChunkCount() int32 {
 	if x != nil {
 		return x.ChunkCount
+	}
+	return 0
+}
+
+func (x *InitUploadRequest) GetSourceHash() string {
+	if x != nil {
+		return x.SourceHash
+	}
+	return ""
+}
+
+func (x *InitUploadRequest) GetSourceModifiedMs() int64 {
+	if x != nil {
+		return x.SourceModifiedMs
 	}
 	return 0
 }
@@ -1040,7 +1086,7 @@ const file_storage_proto_rawDesc = "" +
 	"\x10ListTasksRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\"<\n" +
 	"\x11ListTasksResponse\x12'\n" +
-	"\x05tasks\x18\x01 \x03(\v2\x11.storage.TaskInfoR\x05tasks\"\xf0\x02\n" +
+	"\x05tasks\x18\x01 \x03(\v2\x11.storage.TaskInfoR\x05tasks\"\x9e\x03\n" +
 	"\bTaskInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\afile_id\x18\x02 \x01(\x03R\x06fileId\x12\x1b\n" +
@@ -1054,20 +1100,27 @@ const file_storage_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"G\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12,\n" +
+	"\x12source_modified_ms\x18\v \x01(\x03R\x10sourceModifiedMs\"\x96\x01\n" +
 	"\x13UploadStatusRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x17\n" +
-	"\afile_id\x18\x02 \x01(\x03R\x06fileId\"`\n" +
+	"\afile_id\x18\x02 \x01(\x03R\x06fileId\x12\x1f\n" +
+	"\vsource_hash\x18\x03 \x01(\tR\n" +
+	"sourceHash\x12,\n" +
+	"\x12source_modified_ms\x18\x04 \x01(\x03R\x10sourceModifiedMs\"`\n" +
 	"\x14UploadStatusResponse\x12!\n" +
 	"\fchunks_total\x18\x01 \x01(\x05R\vchunksTotal\x12%\n" +
-	"\x0emissing_chunks\x18\x02 \x03(\x05R\rmissingChunks\"\x92\x01\n" +
+	"\x0emissing_chunks\x18\x02 \x03(\x05R\rmissingChunks\"\xe1\x01\n" +
 	"\x11InitUploadRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
 	"\tmime_type\x18\x03 \x01(\tR\bmimeType\x12\x12\n" +
 	"\x04size\x18\x04 \x01(\x03R\x04size\x12\x1f\n" +
 	"\vchunk_count\x18\x05 \x01(\x05R\n" +
-	"chunkCount\"F\n" +
+	"chunkCount\x12\x1f\n" +
+	"\vsource_hash\x18\x06 \x01(\tR\n" +
+	"sourceHash\x12,\n" +
+	"\x12source_modified_ms\x18\a \x01(\x03R\x10sourceModifiedMs\"F\n" +
 	"\x12InitUploadResponse\x12\x17\n" +
 	"\afile_id\x18\x01 \x01(\x03R\x06fileId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\x03R\x06taskId\"{\n" +

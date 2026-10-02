@@ -24,10 +24,12 @@ const storageLimit int64 = 1 << 30 // 1 GiB
 // POST /api/uploads
 func (s *Server) handleInitUpload(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name       string `json:"name"`
-		Size       int64  `json:"size"`
-		MimeType   string `json:"mime_type"`
-		ChunkCount int32  `json:"chunk_count"`
+		Name           string `json:"name"`
+		Size           int64  `json:"size"`
+		MimeType       string `json:"mime_type"`
+		ChunkCount     int32  `json:"chunk_count"`
+		SourceHash     string `json:"source_hash"`
+		SourceModified int64  `json:"source_modified"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -57,11 +59,13 @@ func (s *Server) handleInitUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := s.storage.InitUpload(ctx, &storagepb.InitUploadRequest{
-		UserId:     currentUser(r).ID,
-		Name:       req.Name,
-		MimeType:   req.MimeType,
-		Size:       req.Size,
-		ChunkCount: req.ChunkCount,
+		UserId:           currentUser(r).ID,
+		Name:             req.Name,
+		MimeType:         req.MimeType,
+		Size:             req.Size,
+		ChunkCount:       req.ChunkCount,
+		SourceHash:       req.SourceHash,
+		SourceModifiedMs: req.SourceModified,
 	})
 	if err != nil {
 		writeGRPCError(w, err)

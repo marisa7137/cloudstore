@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -53,7 +54,8 @@ func (s *Server) InitUpload(ctx context.Context, req *storagepb.InitUploadReques
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create file: %v", err)
 	}
-	task, err := s.db.CreateUploadTask(req.GetUserId(), file.ID, int(req.GetChunkCount()))
+	task, err := s.db.CreateUploadTask(req.GetUserId(), file.ID, int(req.GetChunkCount()),
+		req.GetSourceHash(), req.GetSourceModifiedMs())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create task: %v", err)
 	}
@@ -133,6 +135,22 @@ func (s *Server) GetUploadStatus(ctx context.Context, req *storagepb.UploadStatu
 	if err != nil {
 		return nil, err
 	}
+
+	// Resuming with a different file than the one the upload started with
+	// would assemble a corrupt mix of both versions. Check the cheap mtime
+	// first, then the content hash. On mismatch the task is unrecoverable:
+	// fail it and discard the chunks.
+	if task.SourceModified != req.GetSourceModifiedMs() {
+		s.failUpload(file, task)
+		return nil, status.Error(codes.FailedPrecondition,
+			"source file was modified since upload started; task failed")
+	}
+	if task.SourceHash != "" && task.SourceHash != req.GetSourceHash() {
+		s.failUpload(file, task)
+		return nil, status.Error(codes.FailedPrecondition,
+			"source file content changed since upload started; task failed")
+	}
+
 	present, err := s.presentChunks(file.UserID, file.ID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "scan chunks: %v", err)
@@ -164,15 +182,23 @@ func (s *Server) CompleteUpload(ctx context.Context, req *storagepb.CompleteUplo
 			"only %d of %d chunks received", len(present), task.ChunksTotal)
 	}
 
-	size, sum, err := s.assemble(file, task)
+	size, md5sum, shaSum, err := s.assemble(file, task)
 	if err != nil {
-		// Leave chunks on disk for inspection; mark file + task failed.
-		_ = s.db.FailFile(file.ID)
-		_ = s.db.SetTaskStatus(task.ID, db.TaskFailed)
+		s.failUpload(file, task)
 		return nil, status.Errorf(codes.Internal, "assemble: %v", err)
 	}
 
-	if err := s.db.CompleteFile(file.ID, size, sum); err != nil {
+	// Final end-to-end check: the assembled bytes must hash to what the
+	// client measured at init. Catches a source file modified mid-upload,
+	// mixed versions, or any chunk-handling bug on our side.
+	if task.SourceHash != "" && shaSum != task.SourceHash {
+		s.failUpload(file, task)
+		_ = os.Remove(s.blobPath(file.UserID, file.ID))
+		return nil, status.Error(codes.FailedPrecondition,
+			"assembled file does not match source fingerprint; task failed")
+	}
+
+	if err := s.db.CompleteFile(file.ID, size, md5sum); err != nil {
 		return nil, status.Errorf(codes.Internal, "complete file: %v", err)
 	}
 	if err := s.db.SetTaskStatus(task.ID, db.TaskComplete); err != nil {
@@ -189,35 +215,44 @@ func (s *Server) CompleteUpload(ctx context.Context, req *storagepb.CompleteUplo
 }
 
 // assemble concatenates all chunks in order into the final blob,
-// returning its size and md5 hex checksum.
-func (s *Server) assemble(file *db.File, task *db.Task) (int64, string, error) {
+// returning its size, md5 hex checksum and sha256 hex checksum.
+func (s *Server) assemble(file *db.File, task *db.Task) (int64, string, string, error) {
 	blobPath := s.blobPath(file.UserID, file.ID)
 	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	out, err := os.Create(blobPath)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	defer out.Close()
 
-	hash := md5.New()
-	dst := io.MultiWriter(out, hash) // write once, hash alongside
+	md5Hash := md5.New()
+	shaHash := sha256.New()
+	dst := io.MultiWriter(out, md5Hash, shaHash) // write once, hash alongside
 	var size int64
 
 	for i := 0; i < task.ChunksTotal; i++ {
 		chunk, err := os.Open(filepath.Join(s.uploadDir(file.UserID, file.ID), chunkName(int32(i))))
 		if err != nil {
-			return 0, "", err
+			return 0, "", "", err
 		}
 		n, err := io.Copy(dst, chunk)
 		chunk.Close()
 		if err != nil {
-			return 0, "", err
+			return 0, "", "", err
 		}
 		size += n
 	}
-	return size, hex.EncodeToString(hash.Sum(nil)), nil
+	return size, hex.EncodeToString(md5Hash.Sum(nil)), hex.EncodeToString(shaHash.Sum(nil)), nil
+}
+
+// failUpload marks file + task failed and discards the temp chunks:
+// a failed upload cannot be resumed, only restarted.
+func (s *Server) failUpload(file *db.File, task *db.Task) {
+	_ = s.db.FailFile(file.ID)
+	_ = s.db.SetTaskStatus(task.ID, db.TaskFailed)
+	_ = os.RemoveAll(s.uploadDir(file.UserID, file.ID))
 }
 
 // uploadState loads file + task and checks the file is owned by the user

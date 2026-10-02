@@ -80,6 +80,8 @@ func migrate(conn *sql.DB) error {
 			                CHECK (status IN ('in_progress', 'complete', 'failed')),
 			chunks_total    INTEGER NOT NULL,
 			chunks_received INTEGER NOT NULL DEFAULT 0,
+			source_hash     TEXT    NOT NULL DEFAULT '', -- sha256 of source file at init
+			source_modified INTEGER NOT NULL DEFAULT 0,  -- client mtime, ms since epoch
 			created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);

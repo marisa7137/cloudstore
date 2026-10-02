@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -18,6 +19,7 @@ type taskJSON struct {
 	Status         string    `json:"status"`
 	ChunksTotal    int32     `json:"chunks_total"`
 	ChunksReceived int32     `json:"chunks_received"`
+	SourceModified int64     `json:"source_modified"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -46,6 +48,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 			Status:         taskStatusString(t.GetStatus()),
 			ChunksTotal:    t.GetChunksTotal(),
 			ChunksReceived: t.GetChunksReceived(),
+			SourceModified: t.GetSourceModifiedMs(),
 			CreatedAt:      t.GetCreatedAt().AsTime(),
 			UpdatedAt:      t.GetUpdatedAt().AsTime(),
 		})
@@ -53,11 +56,21 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
 }
 
-// GET /api/uploads/{id}/status
-func (s *Server) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
+// POST /api/uploads/{id}/resume
+// The client proves it still has the same source file (hash + mtime); the
+// storage service fails the task if the fingerprint doesn't match.
+func (s *Server) handleResumeUpload(w http.ResponseWriter, r *http.Request) {
 	fileID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid file id")
+		return
+	}
+	var req struct {
+		SourceHash     string `json:"source_hash"`
+		SourceModified int64  `json:"source_modified"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -65,8 +78,10 @@ func (s *Server) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp, err := s.storage.GetUploadStatus(ctx, &storagepb.UploadStatusRequest{
-		UserId: currentUser(r).ID,
-		FileId: fileID,
+		UserId:           currentUser(r).ID,
+		FileId:           fileID,
+		SourceHash:       req.SourceHash,
+		SourceModifiedMs: req.SourceModified,
 	})
 	if err != nil {
 		writeGRPCError(w, err)

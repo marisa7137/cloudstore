@@ -21,17 +21,21 @@ type Task struct {
 	Status         TaskStatus `json:"status"`
 	ChunksTotal    int        `json:"chunks_total"`
 	ChunksReceived int        `json:"chunks_received"`
+	SourceHash     string     `json:"source_hash"`     // sha256 of source at init
+	SourceModified int64      `json:"source_modified"` // client mtime, ms since epoch
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-const taskColumns = `id, user_id, file_id, type, status, chunks_total, chunks_received, created_at, updated_at`
+const taskColumns = `id, user_id, file_id, type, status, chunks_total, chunks_received, source_hash, source_modified, created_at, updated_at`
 
-// CreateUploadTask records that a user started uploading a file.
-func (d *DB) CreateUploadTask(userID, fileID int64, chunksTotal int) (*Task, error) {
+// CreateUploadTask records that a user started uploading a file, together
+// with a fingerprint of the source so a changed file can be detected later.
+func (d *DB) CreateUploadTask(userID, fileID int64, chunksTotal int, sourceHash string, sourceModified int64) (*Task, error) {
 	res, err := d.conn.Exec(
-		`INSERT INTO tasks (user_id, file_id, type, chunks_total) VALUES (?, ?, 'upload', ?)`,
-		userID, fileID, chunksTotal,
+		`INSERT INTO tasks (user_id, file_id, type, chunks_total, source_hash, source_modified)
+		 VALUES (?, ?, 'upload', ?, ?, ?)`,
+		userID, fileID, chunksTotal, sourceHash, sourceModified,
 	)
 	if err != nil {
 		return nil, err
@@ -54,7 +58,8 @@ func (d *DB) scanTask(query string, args ...any) (*Task, error) {
 	t := &Task{}
 	err := d.conn.QueryRow(query, args...).Scan(
 		&t.ID, &t.UserID, &t.FileID, &t.Type, &t.Status,
-		&t.ChunksTotal, &t.ChunksReceived, &t.CreatedAt, &t.UpdatedAt,
+		&t.ChunksTotal, &t.ChunksReceived, &t.SourceHash, &t.SourceModified,
+		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -84,7 +89,8 @@ type TaskListItem struct {
 func (d *DB) ListUserTasks(userID int64) ([]*TaskListItem, error) {
 	rows, err := d.conn.Query(`
 		SELECT t.id, t.user_id, t.file_id, t.type, t.status,
-		       t.chunks_total, t.chunks_received, t.created_at, t.updated_at,
+		       t.chunks_total, t.chunks_received, t.source_hash, t.source_modified,
+		       t.created_at, t.updated_at,
 		       f.name, f.size
 		FROM tasks t JOIN files f ON f.id = t.file_id
 		WHERE t.user_id = ?
@@ -99,7 +105,8 @@ func (d *DB) ListUserTasks(userID int64) ([]*TaskListItem, error) {
 		t := &TaskListItem{}
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.FileID, &t.Type, &t.Status,
-			&t.ChunksTotal, &t.ChunksReceived, &t.CreatedAt, &t.UpdatedAt,
+			&t.ChunksTotal, &t.ChunksReceived, &t.SourceHash, &t.SourceModified,
+			&t.CreatedAt, &t.UpdatedAt,
 			&t.FileName, &t.FileSize,
 		); err != nil {
 			return nil, err
